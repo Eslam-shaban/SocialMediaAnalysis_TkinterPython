@@ -3,28 +3,87 @@ import pandas as pd
 import numpy as np
 import csv
 from PIL import Image, ImageTk
+import community
 from sklearn.metrics.cluster import normalized_mutual_info_score
+#from networkx.algorithms.community import community_louvain
+from networkx.algorithms.community import louvain_communities
+from networkx.algorithms.community import girvan_newman, greedy_modularity_communities, asyn_lpa_communities
 
+import plotly
+import plotly.graph_objects as go
 from matplotlib import pyplot as plt
-
+from tkinter import filedialog
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 import networkx as nx
 import tkinter as tk
 from tkinter import ttk, messagebox
+from sklearn.metrics import adjusted_rand_score
+import tkinter as tk
+from plotly.subplots import make_subplots
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+import plotly.io as pio
+from plotly.offline import plot
+import plotly.subplots as sp
+import networkx as nx
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
+from plotly.graph_objs import FigureWidget
+import matplotlib.image as mpimg
+import io
+from networkx.algorithms.community.quality import inter_community_edges, intra_community_edges, inter_community_non_edges
 
+
+# -----------------------------------Global Variables----------------------------
 LARGE_FONT = ("Verdana", 20, "bold")
 MEDIAM_FONT=("Verdana", 8, "bold")
+
+# WEIGHT="unweighted"
+# DIRECT="undirected"
+GRAPH = nx.Graph()
+DATASET = pd.DataFrame()
+NODE_DATA=pd.DataFrame()
+# -----------------------------------Global Variables----------------------------
+
 #-------------------------------------Methods-------------------------------------------------------
+def load_nodes_csv():
+    file_path_node = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    node_df = pd.read_csv(file_path_node)
+    global NODE_DATA
+    NODE_DATA=node_df
+
+def load_eges_csv( w, d):
+    global GRAPH
+    global DATASET
+    file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    df = pd.read_csv(file_path)
+    # Do something with the data, for example print the first few rows
+    print(df.head())
+    if d == "undirected":
+        if w == "unweighted":
+            G = nx.from_pandas_edgelist(df, 'Source', 'Target')
+        else:
+            G = nx.from_pandas_edgelist(df, 'Source', 'Target', edge_attr='weight')
+    else:
+        if w == "unweighted":
+            G = nx.from_pandas_edgelist(df, 'Source', 'Target', create_using=nx.DiGraph)
+        else:
+            G = nx.from_pandas_edgelist(df, 'Source', 'Target', edge_attr='weight', create_using=nx.DiGraph)
+    # global GRAPH
+    GRAPH = G
+    DATASET = df
+    # return G
+
 def load_graph_data():
     edg_df = pd.read_csv('./dataset/data_edges.csv')
-    G = nx.from_pandas_edgelist(edg_df,'source','target')
+    G = nx.from_pandas_edgelist(edg_df,'Source','Target')
     return G
 
 def load_graph_data_direct():
     edg_df = pd.read_csv('./dataset/data_edges.csv')
-    G = nx.from_pandas_edgelist(edg_df,'source','target', create_using=nx.DiGraph)
+    G = nx.from_pandas_edgelist(edg_df,'Source','Target', create_using=nx.DiGraph)
     return G
 
 def plot_graph(container):
@@ -39,7 +98,7 @@ def plot_graph(container):
     ax = f.add_subplot(111)
 
     # plotting the graph
-    G=load_graph_data()
+    G=GRAPH
     #G = nx.karate_club_graph()
     pos = nx.spring_layout(G)
     nx.draw_networkx_nodes(G, pos, ax=ax, node_size=500, alpha=0.8)
@@ -57,35 +116,119 @@ def plot_graph(container):
     toolbar.update()
     canvas._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-def plot_graph_direct(container):
+def plot_interactive_g(container):
     # create the frame that will contain the plot
     graph_frame = tk.Frame(container)
     graph_frame.pack(side="top", fill="both", expand=True)
 
-    # create the figure that will contain the plot
-    f = Figure(figsize=(8, 6), dpi=100)
-
-    # add the subplot
-    ax = f.add_subplot(111)
-
     # plotting the graph
-    G=load_graph_data_direct()
-    #G = nx.karate_club_graph()
+    G = GRAPH
+    # G = nx.karate_club_graph()
     pos = nx.spring_layout(G)
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=500, alpha=0.8,node_color='red')
-    nx.draw_networkx_edges(G, pos, ax=ax, alpha=.5,edge_color='black')
-    nx.draw_networkx_labels(G, pos, ax=ax, font_color='black')
-    ax.set_title('Direct Karate Club Graph')
+    node_trace = go.Scatter(x=[],
+                            y=[],
+                            text=[],
+                            mode='markers',
+                            hoverinfo='text',
+                            marker=dict(showscale=False,
+                                        colorscale='YlOrRd',
+                                        reversescale=True,
+                                        color=[],
+                                        size=10,
+                                        colorbar=dict(thickness=20,
+                                                      title='Node Connections',
+                                                      xanchor='left',
+                                                      titleside='right'),
+                                        line_width=2))
 
-    # create a canvas to display the graph
-    canvas = FigureCanvasTkAgg(f, master=graph_frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    for node in G.nodes():
+        x, y = pos[node]
+        node_trace['x'] += tuple([x])
+        node_trace['y'] += tuple([y])
+        node_info = f"Node ID: {node}<br>Number of connections: {len(list(G.neighbors(node)))}"
+        node_trace['text'] += tuple([node_info])
+        node_trace['marker']['color'] += tuple([len(list(G.neighbors(node)))])
 
-    # create a toolbar for the canvas
-    toolbar = NavigationToolbar2Tk(canvas, graph_frame)
-    toolbar.update()
-    canvas._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    edge_trace = go.Scatter(x=[],
+                            y=[],
+                            line=dict(width=0.5, color='#888'),
+                            hoverinfo='none',
+                            mode='lines')
+
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_trace['x'] += tuple([x0, x1, None])
+        edge_trace['y'] += tuple([y0, y1, None])
+
+    # create the subplot that will contain the plot
+    fig = make_subplots(rows=1, cols=1)
+
+    # add the nodes and edges as traces to the subplot
+    fig.add_trace(node_trace)
+    fig.add_trace(edge_trace)
+
+    # update the subplot layout
+    fig.update_layout(title='Direct Karate Club Graph',
+                      titlefont_size=16,
+                      showlegend=False,
+                      hovermode='closest',
+                      margin=dict(b=20, l=5, r=5, t=40),
+                      xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                      yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+
+    # display the plot
+    pio.renderers.default = "browser"
+    pio.show(fig)
+
+def girvan_newman_directed(G,num_communities):
+    # Initialize the communities variable
+    communities = list(nx.weakly_connected_components(G))
+
+    # Loop until there are no more edges to remove
+    while nx.number_of_edges(G) > 0 and len(communities) < num_communities:
+        # Calculate the edge betweenness centrality of all edges
+        betweenness = nx.edge_betweenness_centrality(G)
+
+        # Find the edge(s) with the highest betweenness score
+        max_score = max(betweenness.values())
+        edges = [e for e, score in betweenness.items() if score == max_score]
+
+        # Remove the edge(s) with the highest betweenness score
+        G.remove_edges_from(edges)
+
+        # Update the communities variable
+        new_communities = list(nx.weakly_connected_components(G))
+        if len(new_communities) != len(communities):
+            communities = new_communities
+
+    return communities[:num_communities]
+
+def girvan_newman_(G,num_communities):
+    # Initialize the communities variable
+    communities = list(nx.connected_components(G))
+
+    #print(communities)
+    #no_edges=nx.number_of_edges(G)
+
+    # Loop until there are no more edges to remove
+    while nx.number_of_edges(G) > 0 and len(communities) < num_communities:
+        # Calculate the betweenness centrality of all edges
+        betweenness = nx.edge_betweenness_centrality(G)
+
+        # Find the edge(s) with the highest betweenness score
+        max_score = max(betweenness.values())
+        edges = [e for e, score in betweenness.items() if score == max_score]
+
+        # Remove the edge(s) with the highest betweenness score
+        G.remove_edges_from(edges)
+
+        # Update the communities variable
+        new_communities = list(nx.connected_components(G))
+        if len(new_communities) != len(communities):
+            communities = new_communities
+
+    return communities[:num_communities]
 
 def draw_table(frame):
     table_frame = tk.Frame(frame, width=500, height=400)
@@ -118,6 +261,29 @@ def draw_table(frame):
     table.configure(yscrollcommand=scrollbar.set)
     table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, )
 
+def draw_table_node(frame):
+    table_frame = tk.Frame(frame, width=500, height=400)
+    table_frame.pack(side=tk.TOP)
+
+    cols = NODE_DATA.columns.values
+    table = ttk.Treeview(table_frame, show="headings")
+    table["columns"] = cols
+    for x in range(len(cols)):
+        table.heading(f"#{x + 1}", text=cols[x])
+        table.column(f"#{x + 1}", width=100)
+    table.pack(fill=tk.BOTH, expand=1)
+
+    # Fill table with data from NODE_DATA
+    for i in range(len(NODE_DATA)):
+        row_data = NODE_DATA.iloc[i].values.tolist()
+        table.insert(parent="", index="end", values=row_data)
+
+    scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=table.yview)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    table.configure(yscrollcommand=scrollbar.set)
+    table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
 def draw_table_measure(frame,measure):
     table_frame = tk.Frame(frame, width=500, height=400)
     table_frame.pack(side=tk.TOP)
@@ -142,8 +308,8 @@ def draw_table_measure(frame,measure):
     table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, )
 
 def cal_measures():
-    G = load_graph_data()
-    pr = nx.pagerank(G, 0.7)
+    G = GRAPH
+    pr = nx.pagerank(G, 0.85)
     degree_centr = nx.degree_centrality(G)
     closeness_center = nx.closeness_centrality(G)
     betweeness_center = nx.betweenness_centrality(G, normalized=True, endpoints=False)
@@ -169,35 +335,9 @@ def cal_measures():
     data = pd.DataFrame({'node':G.nodes,'page_rank':pr_list,'degree_centrality':degree_list,
                         'closeness_centrality':pr_list,'betweens_centrality':degree_list})
     print(data.head())
-    data.to_csv('./dataset/measures2.csv',index=False)
+    data.to_csv('./dataset/measures.csv',index=False)
 
-def girvan_newman(G,num_communities):
-    # Initialize the communities variable
-    communities = list(nx.connected_components(G))
-
-    #print(communities)
-    #no_edges=nx.number_of_edges(G)
-
-    # Loop until there are no more edges to remove
-    while nx.number_of_edges(G) > 0 and len(communities) < num_communities:
-        # Calculate the betweenness centrality of all edges
-        betweenness = nx.edge_betweenness_centrality(G)
-
-        # Find the edge(s) with the highest betweenness score
-        max_score = max(betweenness.values())
-        edges = [e for e, score in betweenness.items() if score == max_score]
-
-        # Remove the edge(s) with the highest betweenness score
-        G.remove_edges_from(edges)
-
-        # Update the communities variable
-        new_communities = list(nx.connected_components(G))
-        if len(new_communities) != len(communities):
-            communities = new_communities
-
-    return communities[:num_communities]
-
-def measure_plot(frame,measure):
+def measure_plot(frame,measure,min,max):
         # create the frame that will contain the plot
         graph_frame = tk.Frame(frame)
         graph_frame.pack(side="top", fill="both", expand=True)
@@ -209,16 +349,31 @@ def measure_plot(frame,measure):
         ax = f.add_subplot(111)
 
         # plotting the graph
-        G = load_graph_data()
+        G = GRAPH
         data_measures = pd.read_csv('./dataset/measures.csv')
         m=data_measures[measure]
+        # filter nodes based on the given range of values
+        filtered_values = data_measures.loc[(data_measures[measure] >= min) & (data_measures[measure] <= max), measure]
+        print("values: ",filtered_values)
+        filtered_node = data_measures.loc[data_measures[measure].isin(filtered_values), 'node']
+        print("index: ",filtered_node)
+        # filter graph based on nodes with valid values in the m Series
+        #valid_nodes = filtered_node[filtered_node.isin(m.index)]
+        #print("nodes: ",valid_nodes)
+        #G = G.subgraph(valid_nodes.values)
+        G = G.subgraph(filtered_node.values)
+        print(G.nodes())
         # Define a colormap to map the centrality scores to colors
         cmap = plt.cm.get_cmap('hsv')
         # Draw the graph with nodes colored by their closeness centrality score
         pos = nx.spring_layout(G)
-        nx.draw_networkx(G, pos, node_color=[cmap(m[node]) for node in G.nodes()], with_labels=True,ax=ax)
-        ax.set_title('Filtered Club Graph')
+        #try:
+        nx.draw_networkx(G, pos, with_labels=True,ax=ax)
+        #except Exception:
+        #    messagebox.showerror("Error out of the Range", "Please enter a valid Min and Max value.")
 
+        ax.set_title('Filtered Club Graph')
+        #G=GRAPH
         # create a canvas to display the graph
         canvas = FigureCanvasTkAgg(f, master=graph_frame)
         canvas.draw()
@@ -241,14 +396,19 @@ def adjust_node(frame):
     ax = f.add_subplot(111)
 
     # plotting the graph
-    G = load_graph_data()
-    data_measures = pd.read_csv('./dataset/measures.csv')
-    m = data_measures['degree_centrality']
+    G = GRAPH
+    # data_measures = pd.read_csv('./dataset/measures.csv')
+    # m = data_measures['degree_centrality']
+    degree = nx.degree_centrality(G)
+    degree_list=[]
+    for node, value in degree.items():
+        degree_list.append(degree[node])
+    degree_arr = np.array(degree_list)
     # Define a colormap to map the centrality scores to colors
-    cmap = plt.cm.get_cmap('hsv')
+    # cmap = plt.cm.get_cmap('hsv')
     # Draw the graph with nodes colored by their closeness centrality score
     pos = nx.spring_layout(G)
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=(m*1000), alpha=0.8)
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=(degree_arr * 1000), alpha=0.8)
     nx.draw_networkx_edges(G, pos, ax=ax, alpha=.5)
     nx.draw_networkx_labels(G, pos, ax=ax, font_color='black')
     ax.set_title('Adjust Graph Nodes')
@@ -275,11 +435,17 @@ def adjust_edges(frame):
     ax = f.add_subplot(111)
 
     # plotting the graph
-    G = load_graph_data()
-    data_measures = pd.read_csv('./dataset/data_edges.csv')
-    m = data_measures['weight']
+    G = GRAPH
+    #data_measures = pd.read_csv('./dataset/data_edges.csv')
+    try:
+        data = DATASET
+        m = data.iloc[:,2].astype(float)
+    except Exception:
+        messagebox.showerror("Error", "This Data hasn't weight")
+        return
+    #
     # Define a colormap to map the centrality scores to colors
-    cmap = plt.cm.get_cmap('hsv')
+    # cmap = plt.cm.get_cmap('hsv')
     # Draw the graph with nodes colored by their closeness centrality score
     pos = nx.spring_layout(G)
     nx.draw_networkx_nodes(G, pos, ax=ax, node_size=500, alpha=0.8)
@@ -297,35 +463,21 @@ def adjust_edges(frame):
     toolbar.update()
     canvas._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-import networkx as nx
+def max_page_rank():
+    # G = GRAPH
+    # pr = nx.pagerank(G, 0.7)
+    # pr_list=[]
+    # for node, value in pr.items():
+    #     pr_list.append(pr[node])
 
-def calc_conductance(G, community):
-    # Compute the cut size, i.e., the number of edges that have one endpoint in the community and one endpoint outside
-    cut_size = sum(w for u, v, w in G.edges(community, data='weight') if v not in community)
+    data_measures = pd.read_csv('./dataset/measures.csv')
+    pr = data_measures['page_rank']
+    max_pr = pr.max()
+    #print(max_pr)
+    max_node = data_measures.loc[data_measures['page_rank'].idxmax(),'node']
+    #print(max_node)
+    return max_node, max_pr
 
-    # Compute the volume of the community, i.e., the sum of the weights of the edges with both endpoints in the community
-    community_volume = sum(w for u, v, w in G.edges(community, data='weight') if v in community)
-
-    # Compute the volume of the complement of the community, i.e., the sum of the weights of the edges with one endpoint in the community and one endpoint outside
-    complement_volume = sum(w for u, v, w in G.edges(community, data='weight') if v not in community)
-
-    # Compute the conductance measure
-    if community_volume == 0 or complement_volume == 0:
-        # If the community is disconnected, return infinity to represent infinite conductance
-        return float('inf')
-    else:
-        return cut_size / min(community_volume, complement_volume)
-
-def conductance(G, S, T):
-    cut_edges = [(u, v) for u in S for v in T if G.has_edge(u, v)]
-    num_cut_edges = len(cut_edges)
-    volume_S = sum(G.degree(u) for u in S)
-    volume_T = sum(G.degree(u) for u in T)
-
-    if volume_S == 0 or volume_T == 0:
-        return float('inf')
-
-    return num_cut_edges / min(volume_S, volume_T)
 #-------------------------------------Methods-------------------------------------------------------
 
 
@@ -344,7 +496,7 @@ class SNAClass(tk.Tk):
 
         self.frames = {}
         pages=[StartPage, PageGirvan, PageDegree, PageCloseness, PageBetweenes, PageRank,
-               PageGraph, PageDiGraph,PageMeasures,PageAdjustNode,PageAdjustEdges,
+               PageGraph,PageMeasures,PageAdjustNode,PageAdjustEdges,PageInteractiveGraph,PageNodeData,
                PageModularity,PageConductance,PageNMI]
 
 
@@ -376,6 +528,39 @@ class StartPage(tk.Frame):
         label2.image = photo
         label2.place(x=250, y=100)
 
+        self.directed_G = tk.StringVar()
+        self.weighted_G = tk.StringVar()
+
+        self.directed_G.set("undirected")
+        self.weighted_G.set("unweighted")
+
+        self.WEIGHT = self.weighted_G.get()
+        self.DIRECT = self.directed_G.get()
+        print(self.DIRECT)
+        print(self.WEIGHT)
+    #-----------------------------------------------------------------
+        radio_d = tk.Radiobutton(self, text="directed", variable=self.directed_G, value="directed")
+        radio_d.place(x=50, y=30)
+        radio_ud = tk.Radiobutton(self, text="undirected", variable=self.directed_G, value="undirected")
+        radio_ud.place(x=50, y=60)
+        radio_w = tk.Radiobutton(self, text="weighted", variable=self.weighted_G, value="weighted")
+        radio_w.place(x=150, y=30)
+        radio_uw = tk.Radiobutton(self, text="unweighted", variable=self.weighted_G, value="unweighted")
+        radio_uw.place(x=150, y=60)
+
+        # global WEIGHT, DIRECT, GRAPH
+        self.WEIGHT = self.weighted_G.get()
+        self.DIRECT = self.directed_G.get()
+        print(self.DIRECT)
+        print(self.WEIGHT)
+        # global GRAPH
+        #variable_name = tk.Variable()
+        button_edge_df = tk.Button(self, text="Load Edges Data CSV", command=lambda:load_eges_csv(self.weighted_G.get(), self.directed_G.get()))
+        button_edge_df.place(x=250, y=30)
+        #GRAPH = variable_name.get()
+        button_node_df = tk.Button(self, text="Load Nodes Data CSV",
+                                   command=lambda: load_nodes_csv())
+        button_node_df.place(x=250, y=60)
     # -----------------------Right side--------------------------------
         # create and place the buttons
         measur_lb = tk.Label(self, text="Calculate Measure First\n before filter any node:-",font=MEDIAM_FONT)
@@ -407,18 +592,18 @@ class StartPage(tk.Frame):
         button4.place(x=1100, y=370)
 
         Evaluation_lb = tk.Label(self, text="Community Detection \nEvaluation:-", font=MEDIAM_FONT)
-        Evaluation_lb.place(x=1100, y=340)
+        Evaluation_lb.place(x=1100, y=420)
         button10 = ttk.Button(self, text="Modularity", width=25,
                              command=lambda: controller.show_frame(PageModularity))
-        button10.place(x=1100, y=370)
+        button10.place(x=1100, y=450)
 
         button11 = ttk.Button(self, text="Conductance", width=25,
                               command=lambda: controller.show_frame(PageConductance))
-        button11.place(x=1100, y=400)
+        button11.place(x=1100, y=480)
 
         button11 = ttk.Button(self, text="NMI", width=25,
                               command=lambda: controller.show_frame(PageNMI))
-        button11.place(x=1100, y=430)
+        button11.place(x=1100, y=510)
 
     # -----------------------Right side--------------------------------
 
@@ -430,8 +615,8 @@ class StartPage(tk.Frame):
                              command=lambda: controller.show_frame(PageGraph))
         button5.place(x=50, y=130)
 
-        button6 = ttk.Button(self, text="Direct Graph Page", width=25,
-                             command=lambda: controller.show_frame(PageDiGraph))
+        button6 = ttk.Button(self, text="Interactive Graph Page", width=25,
+                             command=lambda: controller.show_frame(PageInteractiveGraph))
         button6.place(x=50, y=160)
 
         comm_detect_lb = tk.Label(self, text="Community Detection:-",font=MEDIAM_FONT)
@@ -452,8 +637,31 @@ class StartPage(tk.Frame):
                              command=lambda: controller.show_frame(PageAdjustEdges))
         button9.place(x=50, y=380)
 
+        edge_lb_node = tk.Label(self, text="View Node Dataset:-", font=MEDIAM_FONT)
+        edge_lb_node.place(x=50, y=430)
+        button_node = ttk.Button(self, text="Node Dataset", width=25,
+                             command=lambda: controller.show_frame(PageNodeData))
+        button_node.place(x=50, y=450)
+
+
     # -----------------------Left side--------------------------------
 
+class PageNodeData(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+
+        label = tk.Label(self, text="Node Page", font=LARGE_FONT)
+        label.pack(pady=10, padx=10)
+
+        button1 = ttk.Button(self, text="Back to Home", command=lambda: controller.show_frame(StartPage))
+        button1.pack()
+
+        self.button_table = ttk.Button(self, text="View Data", command=self.show_table)
+        self.button_table.pack()
+
+    def show_table(self):
+        draw_table_node(self)
+        self.button_table.configure(state="disabled")  # disable the button after it has been clicked
 
 class PageMeasures(tk.Frame):
     def __init__(self, parent, controller):
@@ -472,7 +680,6 @@ class PageMeasures(tk.Frame):
         draw_table(self)
         self.button_table.configure(state="disabled")  # disable the button after it has been clicked
 
-
 class PageGirvan(tk.Frame):
 
     def __init__(self, parent, controller):
@@ -490,7 +697,7 @@ class PageGirvan(tk.Frame):
         self.button_table.pack()
 
     def show_girvan(self):
-        G = load_graph_data()
+        G = GRAPH
         # Get the value of the Entry widget and convert it to an integer
         try:
             self.n_comm = int(self.e1.get())
@@ -499,7 +706,10 @@ class PageGirvan(tk.Frame):
             return
 
         # Detect communities using the Girvan-Newman algorithm
-        communities = girvan_newman(G, self.n_comm)
+        if G.is_directed():
+            communities=girvan_newman_directed(G, self.n_comm)
+        else:
+            communities = girvan_newman_(G, self.n_comm)
         # Print the communities
         ourMessage = ""
         for i, c in enumerate(communities):
@@ -509,7 +719,6 @@ class PageGirvan(tk.Frame):
         messageVar.config(bg='white',padx=20,pady=20,)
         messageVar.pack()
         self.button_table.configure(state="disabled")  # disable the button after it has been clicked
-
 
 class PageDegree(tk.Frame):
 
@@ -522,14 +731,26 @@ class PageDegree(tk.Frame):
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
 
+        label_min = tk.Label(self, text='Enter min value of Degree Centrality').pack()
+        self.e_min = tk.Entry(self)
+        self.e_min.pack()
+        label_max = tk.Label(self, text='Enter max value of Degree Centrality').pack()
+        self.e_max = tk.Entry(self)
+        self.e_max.pack()
+
         self.button_plot_ = ttk.Button(self, text="Filter Nodes",
                              command=self.show_plot)
         self.button_plot_.pack()
 
     def show_plot(self):
-        measure_plot(self,'degree_centrality')
+        try:
+            self.min = float(self.e_min.get())
+            self.max = float(self.e_max.get())
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid integer value.")
+            return
+        measure_plot(self,'degree_centrality',self.min,self.max)
         self.button_plot_.configure(state="disabled")
-
 
 class PageCloseness(tk.Frame):
 
@@ -542,14 +763,26 @@ class PageCloseness(tk.Frame):
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
 
+        label_min = tk.Label(self, text='Enter min value of Closseness Centrality').pack()
+        self.e_min = tk.Entry(self)
+        self.e_min.pack()
+        label_max = tk.Label(self, text='Enter max value of Closseness Centrality').pack()
+        self.e_max = tk.Entry(self)
+        self.e_max.pack()
+
         self.button_plot_ = ttk.Button(self, text="Filter Nodes",
                              command=self.show_plot)
         self.button_plot_.pack()
 
     def show_plot(self):
-        measure_plot(self,'closeness_centrality')
+        try:
+            self.min = float(self.e_min.get())
+            self.max = float(self.e_max.get())
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid integer value.")
+            return
+        measure_plot(self,'closeness_centrality',self.min,self.max)
         self.button_plot_.configure(state="disabled")
-
 
 class PageBetweenes(tk.Frame):
 
@@ -562,14 +795,25 @@ class PageBetweenes(tk.Frame):
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
 
+        label_min = tk.Label(self, text='Enter min value of Betweeness Centrality').pack()
+        self.e_min = tk.Entry(self)
+        self.e_min.pack()
+        label_max = tk.Label(self, text='Enter max value of Betweeness Centrality').pack()
+        self.e_max = tk.Entry(self)
+        self.e_max.pack()
         self.button_plot_ = ttk.Button(self, text="Filter Nodes",
                                        command=self.show_plot)
         self.button_plot_.pack()
 
     def show_plot(self):
-        measure_plot(self,'betweens_centrality')
+        try:
+            self.min = float(self.e_min.get())
+            self.max = float(self.e_max.get())
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid integer value.")
+            return
+        measure_plot(self, 'betweens_centrality', self.min, self.max)
         self.button_plot_.configure(state="disabled")
-
 
 class PageRank(tk.Frame):
 
@@ -582,14 +826,17 @@ class PageRank(tk.Frame):
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
 
-        self.button_plot_ = ttk.Button(self, text="Filter Nodes",
-                                       command=self.show_plot)
+        self.button_plot_ = ttk.Button(self, text="Max Page Rank",
+                                       command=self.show_PR)
         self.button_plot_.pack()
 
-    def show_plot(self):
-        measure_plot(self,'page_rank')
+    def show_PR(self):
+        max_node, max_pr = max_page_rank()
+        ourMessage="Max Page Rank: {}  \nfor Node: {}".format(max_pr,max_node)
+        messageVar = tk.Message(self, text=ourMessage, width=400)
+        messageVar.config(bg='white', padx=20, pady=20, )
+        messageVar.pack()
         self.button_plot_.configure(state="disabled")
-
 
 class PageAdjustNode(tk.Frame):
 
@@ -610,7 +857,6 @@ class PageAdjustNode(tk.Frame):
         adjust_node(self)
         self.button_plot_.configure(state="disabled")
 
-
 class PageAdjustEdges(tk.Frame):
 
     def __init__(self, parent, controller):
@@ -630,7 +876,6 @@ class PageAdjustEdges(tk.Frame):
         adjust_edges(self)
         self.button_plot_.configure(state="disabled")
 
-
 class PageModularity(tk.Frame):
 
     def __init__(self, parent, controller):
@@ -641,32 +886,40 @@ class PageModularity(tk.Frame):
         button1 = ttk.Button(self, text="Back to Home",
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
-        label = tk.Label(self, text='Enter Number of Communities').pack()
-        self.e1 = tk.Entry(self)
-        self.e1.pack()
+        # label = tk.Label(self, text='Enter Number of Communities').pack()
+        # self.e1 = tk.Entry(self)
+        # self.e1.pack()
         self.button_table = ttk.Button(self, text="View Measure", command=self.show_modularity)
         self.button_table.pack()
 
     def show_modularity(self):
-        G = load_graph_data()
+        G = GRAPH
         # Get the value of the Entry widget and convert it to an integer
-        try:
-            self.n_comm = int(self.e1.get())
-        except ValueError:
-            messagebox.showerror("Error", "Please enter a valid integer value.")
-            return
+        # try:
+        #     self.n_comm = int(self.e1.get())
+        # except ValueError:
+        #     messagebox.showerror("Error", "Please enter a valid integer value.")
+        #     return
+
+        # Calculate the Louvain community structure
+        partition = louvain_communities(G)
+
+        # Calculate the modularity of the community structure
+        modularity = nx.community.modularity(G, partition)
 
         # Detect communities using the Girvan-Newman algorithm
-        communities = girvan_newman(G, self.n_comm)
-
-        modularity = nx.community.modularity(G, communities)
+        # if G.is_directed():
+        #     communities = girvan_newman_directed(G,self.n_comm)
+        # else:
+        #     communities = girvan_newman(G, self.n_comm)
+        #
+        # modularity = nx.community.modularity(G, communities)
         ourMessage = "Modularity Evaluation: "+str(modularity)
 
         messageVar = tk.Message(self, text=ourMessage,width=400)
         messageVar.config(bg='white',padx=20,pady=20,)
         messageVar.pack()
         self.button_table.configure(state="disabled")  # disable the button after it has been clicked
-
 
 class PageConductance(tk.Frame):
 
@@ -678,44 +931,48 @@ class PageConductance(tk.Frame):
         button1 = ttk.Button(self, text="Back to Home",
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
-        label = tk.Label(self, text='Enter Number of Communities').pack()
-        self.e1 = tk.Entry(self)
-        self.e1.pack()
+        # label = tk.Label(self, text='Enter Number of Communities').pack()
+        # self.e1 = tk.Entry(self)
+        # self.e1.pack()
         self.button_table = ttk.Button(self, text="View Measure", command=self.show_conductsnce)
         self.button_table.pack()
 
     def show_conductsnce(self):
-        G = load_graph_data()
+        G = GRAPH
         # Get the value of the Entry widget and convert it to an integer
-        try:
-            self.n_comm = int(self.e1.get())
-        except ValueError:
-            messagebox.showerror("Error", "Please enter a valid integer value.")
-            return
+        # try:
+        #     self.n_comm = int(self.e1.get())
+        # except ValueError:
+        #     messagebox.showerror("Error", "Please enter a valid integer value.")
+        #     return
 
         # Detect communities using the Girvan-Newman algorithm
-        communities = girvan_newman(G, self.n_comm)
-        #conductances = []
-        # for community in communities:
-        #     try:
-        #         community_conductance = nx.algorithms.cuts.conductance(G, community)
-        #     except ZeroDivisionError:
-        #         community_conductance=float('inf')
-        #     conductances.append(community_conductance)
+        # communities = girvan_newman(G, self.n_comm)
         # conductances = []
         # for community in communities:
         #     community_conductance = nx.algorithms.cuts.conductance(G, community)
         #     conductances.append(community_conductance)
+        # Use Girvan-Newman algorithm to detect communities
+        communities = girvan_newman(G)
 
-        #conductances = calc_conductance(G,communities)
-        conductances = []
-        for community in communities:
-            community_conductance = conductance(G, community)
-            conductances.append(community_conductance)
+        # Calculate conductance for each community
+        cond=""
+        for com in next(communities):
+            conductance = nx.algorithms.cuts.conductance(G, com)
+            #print("Conductance for community ", com, ": ", conductance)
+            cond += "Conductance for community {}: {}\n".format(com,conductance)
 
-        ourMessage = "Conductance Evaluation: " + str(conductances)
+        # Use Louvain algorithm to detect communities
+        # communities = greedy_modularity_communities(G)
+        #
+        # # Calculate conductance for each community
+        # for com in communities:
+        #     conductance = nx.algorithms.cuts.conductance(G, com)
+        #     print("Conductance for community ", com, ": ", conductance)
 
-        messageVar = tk.Message(self, text=ourMessage, width=400)
+        ourMessage = cond
+
+        messageVar = tk.Message(self, text=ourMessage, width=600)
         messageVar.config(bg='white', padx=20, pady=20)
         messageVar.pack()
         self.button_table.configure(state="disabled")  # disable the button after it has been clicked
@@ -730,25 +987,41 @@ class PageNMI(tk.Frame):
         button1 = ttk.Button(self, text="Back to Home",
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
-        label = tk.Label(self, text='Enter Number of Communities').pack()
-        self.e1 = tk.Entry(self)
-        self.e1.pack()
+        # label = tk.Label(self, text='Enter Number of Communities').pack()
+        # self.e1 = tk.Entry(self)
+        # self.e1.pack()
         self.button_table = ttk.Button(self, text="View Measure", command=self.show_NMI)
         self.button_table.pack()
 
     def show_NMI(self):
-        G = load_graph_data()
+        G = GRAPH
         # Get the value of the Entry widget and convert it to an integer
-        try:
-            self.n_comm = int(self.e1.get())
-        except ValueError:
-            messagebox.showerror("Error", "Please enter a valid integer value.")
-            return
+        # try:
+        #     self.n_comm = int(self.e1.get())
+        # except ValueError:
+        #     messagebox.showerror("Error", "Please enter a valid integer value.")
+        #     return
 
         # Detect communities using the Girvan-Newman algorithm
-        communities = girvan_newman(G, self.n_comm)
+        # communities = girvan_newman_(G, 2)
+        # for c in communities:
+        #     print(c)
+        # # Select the final communities at the desired level
+        # comm1=communities[0]
+        # comm2=communities[1]
+        # # Compute NMI
+        # nmi = normalized_mutual_info_score(comm1, comm2)
+        #ari = adjusted_rand_score(comm1, comm2)
+        partition1 = community.best_partition(G)
 
-        nmi = normalized_mutual_info_score([9], [11])
+        # Convert the partitions into lists of cluster labels
+
+        true_labels = [partition1.get(node) for node in G.nodes()]
+        predicted_labels = [partition1[node] for node in G.nodes()]
+
+
+        # Compute the NMI between the two clusterings
+        nmi = normalized_mutual_info_score(true_labels, predicted_labels)
 
         ourMessage = "NMI Evaluation: "+str(nmi)
 
@@ -758,7 +1031,6 @@ class PageNMI(tk.Frame):
         self.button_table.configure(state="disabled")  # disable the button after it has been clicked
 
 #----------------------------------------------------------------------------------------------------------------
-
 class PageGraph(tk.Frame):
 
     def __init__(self, parent, controller):
@@ -783,8 +1055,7 @@ class PageGraph(tk.Frame):
             plot_graph(self)
             self.button_plot.configure(state="disabled")  # disable the button after it has been clicked
 
-
-class PageDiGraph(tk.Frame):
+class PageInteractiveGraph(tk.Frame):
 
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
@@ -797,18 +1068,16 @@ class PageDiGraph(tk.Frame):
                              command=lambda: controller.show_frame(StartPage))
         button1.pack()
 
-        self.button_di_plot = ttk.Button(self, text="Plot Graph", command=lambda:  show_di_graph())
+        self.button_di_plot = ttk.Button(self, text="Plot Graph", command=lambda:  show_ia_graph())
         self.button_di_plot.pack()
 
         # create a frame to display the graph
         self.graph_frame = tk.Frame(self)
         self.graph_frame.pack(side="top", fill="both", expand=True)
 
-        def show_di_graph():
-            plot_graph_direct(self)
+        def show_ia_graph():
+            plot_interactive_g(self)
             self.button_di_plot.configure(state="disabled")  # disable the button after it has been clicked
-
-
 
 
 app = SNAClass()
