@@ -1,4 +1,12 @@
 # Social Media Analysis Project using TkinterPython
+
+It is a desktop software for network analysis and visualization. It is a tool used by
+data analysts and researchers to explore graphs of different networks. It enables
+users to interact with the graphs in many ways like coloring and adjusting nodes
+and edges based on calculated metrics or existing features, filtering the graphs
+based on any criteria, applying different community detection methods, link
+prediction techniques, and detecting influential users.
+
 this project load graph data sets and deal with it:
 - View Graph
 - apply Community Detection
